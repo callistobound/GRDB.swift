@@ -17,9 +17,15 @@ var swiftSettings: [SwiftSetting] = [
     .define("SQLITE_ENABLE_SNAPSHOT"),
     // Not all Linux distributions have support for WAL snapshots.
     .define("SQLITE_DISABLE_SNAPSHOT", .when(platforms: [.linux])),
+    // Android: the NDK has no SQLite, so GRDB uses swift-sqlcipher's (SQLite with FTS5), through the sources'
+    // `#elseif SQLCipher` imports. Apple platforms and Linux keep the system SQLite (GRDBSQLite).
+    .define("SQLCipher", .when(platforms: [.android])),
 ]
 var cSettings: [CSetting] = []
-var dependencies: [PackageDescription.Package.Dependency] = []
+var dependencies: [PackageDescription.Package.Dependency] = [
+    // Android only (see the SQLCipher define above).
+    .package(url: "https://github.com/skiptools/swift-sqlcipher", from: "1.9.0"),
+]
 
 // Don't rely on those environment variables. They are ONLY testing conveniences:
 // $ SQLITE_ENABLE_PREUPDATE_HOOK=1 make test_SPM
@@ -65,19 +71,19 @@ let package = Package(
         .systemLibrary(
             name: "GRDBSQLite",
             providers: [.apt(["libsqlite3-dev"])]),
-        // GRDB+SQLCipher: Uncomment the GRDBSQLCipher target
-        //.target(
-        //    name: "GRDBSQLCipher",
-        //    dependencies: [.product(name: "SQLCipher", package: "SQLCipher.swift")]
-        //),
+        // Android only: swift-sqlcipher's SQLite (see the SQLCipher define above).
+        .target(
+            name: "GRDBSQLCipher",
+            dependencies: [.product(name: "SQLCipher", package: "swift-sqlcipher")]
+        ),
         .target(
             name: "GRDB",
             dependencies: [
-                // GRDB+SQLCipher: Delete the GRDBSQLite dependency
-                .target(name: "GRDBSQLite"),
-                // GRDB+SQLCipher: Uncomment the SQLCipher and GRDBSQLCipher dependencies
-                //.product(name: "SQLCipher", package: "SQLCipher.swift"),
-                //.target(name: "GRDBSQLCipher"),
+                // The system SQLite everywhere but Android.
+                .target(name: "GRDBSQLite", condition: .when(platforms: darwinPlatforms + [.linux])),
+                // Android: swift-sqlcipher's SQLite.
+                .product(name: "SQLCipher", package: "swift-sqlcipher", condition: .when(platforms: [.android])),
+                .target(name: "GRDBSQLCipher", condition: .when(platforms: [.android])),
             ],
             path: "GRDB",
             resources: [.copy("PrivacyInfo.xcprivacy")],

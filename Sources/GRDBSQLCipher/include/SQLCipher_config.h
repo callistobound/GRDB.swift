@@ -1,6 +1,7 @@
 #ifndef grdb_config_h
 #define grdb_config_h
 
+#if __has_include(<SQLCipher/sqlite3.h>)
 #include <SQLCipher/sqlite3.h>
 
 typedef void(*_errorLogCallback)(void *pArg, int iErrCode, const char *zMsg);
@@ -28,5 +29,10 @@ static inline void _enableDoubleQuotedStringLiterals(sqlite3 *db) {
 #else
 static inline void _disableDoubleQuotedStringLiterals(sqlite3 *db) { }
 static inline void _enableDoubleQuotedStringLiterals(sqlite3 *db) { }
+#endif
+#else
+// swift-sqlcipher (github.com/skiptools/swift-sqlcipher): its SQLCipher module has sqlite3.h at the top and
+// already declares the helpers above (its grdb.h).
+#include <sqlite3.h>
 #endif
 #endif /* grdb_config_h */
