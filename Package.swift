@@ -17,15 +17,31 @@ var swiftSettings: [SwiftSetting] = [
     .define("SQLITE_ENABLE_SNAPSHOT"),
     // Not all Linux distributions have support for WAL snapshots.
     .define("SQLITE_DISABLE_SNAPSHOT", .when(platforms: [.linux])),
-    // Android: the NDK has no SQLite, so GRDB uses swift-sqlcipher's (SQLite with FTS5), through the sources'
-    // `#elseif SQLCipher` imports. Apple platforms and Linux keep the system SQLite (GRDBSQLite).
-    .define("SQLCipher", .when(platforms: [.android])),
 ]
 var cSettings: [CSetting] = []
 var dependencies: [PackageDescription.Package.Dependency] = [
-    // Android only (see the SQLCipher define above).
+    // Android only (see `android` below).
     .package(url: "https://github.com/skiptools/swift-sqlcipher", from: "1.9.0"),
 ]
+
+// Android: the NDK has no SQLite, so GRDB uses swift-sqlcipher's (SQLite with FTS5), through the sources'
+// `#elseif SQLCipher` imports. Apple platforms and Linux keep the system SQLite (GRDBSQLite).
+//
+// Skip sets TARGET_OS_ANDROID=1 when it builds for Android. The platform conditions alone aren't enough: Xcode
+// still builds a dependency conditioned on Android, and passes its headers to GRDB, so GRDBSQLite's
+// `#include <sqlite3.h>` would find swift-sqlcipher's sqlite3.h. So unless TARGET_OS_ANDROID is set, GRDB doesn't
+// depend on swift-sqlcipher at all, and nothing about the Apple build changes.
+let android = (Context.environment["TARGET_OS_ANDROID"] ?? "0") != "0"
+var sqliteDependencies: [Target.Dependency] = [
+    .target(name: "GRDBSQLite", condition: .when(platforms: darwinPlatforms + [.linux])),
+]
+if android {
+    swiftSettings.append(.define("SQLCipher", .when(platforms: [.android])))
+    sqliteDependencies += [
+        .product(name: "SQLCipher", package: "swift-sqlcipher", condition: .when(platforms: [.android])),
+        .target(name: "GRDBSQLCipher", condition: .when(platforms: [.android])),
+    ]
+}
 
 // Don't rely on those environment variables. They are ONLY testing conveniences:
 // $ SQLITE_ENABLE_PREUPDATE_HOOK=1 make test_SPM
@@ -71,20 +87,15 @@ let package = Package(
         .systemLibrary(
             name: "GRDBSQLite",
             providers: [.apt(["libsqlite3-dev"])]),
-        // Android only: swift-sqlcipher's SQLite (see the SQLCipher define above).
+        // Android only: swift-sqlcipher's SQLite (see `android` above).
         .target(
             name: "GRDBSQLCipher",
             dependencies: [.product(name: "SQLCipher", package: "swift-sqlcipher")]
         ),
         .target(
             name: "GRDB",
-            dependencies: [
-                // The system SQLite everywhere but Android.
-                .target(name: "GRDBSQLite", condition: .when(platforms: darwinPlatforms + [.linux])),
-                // Android: swift-sqlcipher's SQLite.
-                .product(name: "SQLCipher", package: "swift-sqlcipher", condition: .when(platforms: [.android])),
-                .target(name: "GRDBSQLCipher", condition: .when(platforms: [.android])),
-            ],
+            // The system SQLite everywhere but Android (see `android` above).
+            dependencies: sqliteDependencies,
             path: "GRDB",
             resources: [.copy("PrivacyInfo.xcprivacy")],
             cSettings: cSettings,
